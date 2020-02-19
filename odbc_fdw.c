@@ -733,6 +733,9 @@ static void
 check_return(SQLRETURN ret, char *msg, SQLHANDLE handle, SQLSMALLINT type)
 {
 	int err_code = ERRCODE_SYSTEM_ERROR;
+#define ERR_DETAIL_SIZE 8192
+	char err_detail[ERR_DETAIL_SIZE];
+	int err_detail_offset = 0, err_detail_remaining = ERR_DETAIL_SIZE;
 
 #ifdef DEBUG
 	SQLINTEGER   i = 0;
@@ -755,13 +758,31 @@ check_return(SQLRETURN ret, char *msg, SQLHANDLE handle, SQLSMALLINT type)
 			{
 				diag_ret = SQLGetDiagRec(type, handle, ++i, state, &native, text,
 				                         sizeof(text), &len );
-				if (SQL_SUCCEEDED(diag_ret))
-					elog(DEBUG1, " %s:%ld:%ld:%s\n", state, (long int) i, (long int) native, text);
+				if (SQL_SUCCEEDED(diag_ret)) {
+					elog(DEBUG1, "%s:%ld:%ld:%s\n", state, (long int) i, (long int) native, text);
+					int nb = snprintf(
+						&err_detail[err_detail_offset],
+						err_detail_remaining,
+						"%s:%ld:%ld:%s\n",
+						state,
+						(long int) i,
+						(long int) native,
+						text
+					);
+					if (nb >= err_detail_remaining) {
+						err_detail[ERR_DETAIL_SIZE-4] =
+							err_detail[ERR_DETAIL_SIZE-3] =
+							err_detail[ERR_DETAIL_SIZE-2] =
+							'.';
+					}
+					err_detail_offset += nb;
+					err_detail_remaining -= nb;
+				}
 			}
 			while( diag_ret == SQL_SUCCESS );
 		}
 #endif
-		ereport(ERROR, (errcode(err_code), errmsg("%s", msg)));
+		ereport(ERROR, (errcode(err_code), errmsg("%s: %s", msg, err_detail)));
 	}
 }
 
