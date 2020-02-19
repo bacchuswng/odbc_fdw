@@ -118,9 +118,11 @@ typedef struct odbcFdwOptions
 	char  *sql_count;  /* SQL query for counting results */
 	char  *encoding;   /* Character encoding name */
 
-	List *connection_list; /* ODBC connection attributes */
+	List  *connection_list; /* ODBC connection attributes */
 
 	List  *mapping_list; /* Column name mapping */
+
+	bool  case_insensitive;
 } odbcFdwOptions;
 
 typedef struct odbcFdwExecutionState
@@ -162,6 +164,7 @@ static struct odbcFdwOption valid_options[] =
 	{ "dsn",        ForeignServerRelationId },
 	{ "driver",     ForeignServerRelationId },
 	{ "encoding",   ForeignServerRelationId },
+	{ "case_insensitive", ForeignServerRelationId },
 
 	/* Foreign table options */
 	{ "schema",     ForeignTableRelationId },
@@ -369,6 +372,12 @@ extract_odbcFdwOptions(List *options_list, odbcFdwOptions *extracted_options)
 		if (strcmp(def->defname, "encoding") == 0)
 		{
 			extracted_options->encoding = defGetString(def);
+			continue;
+		}
+
+		if (strcmp(def->defname, "case_insensitive") == 0)
+		{
+			extracted_options->case_insensitive = defGetBoolean(def);
 			continue;
 		}
 
@@ -857,7 +866,14 @@ odbcGetTableSize(odbcFdwOptions* options, unsigned int *size)
 	if (is_blank_string(options->sql_count))
 	{
 		/* Get quote char */
-		getQuoteChar(dbc, &quote_char);
+		if (options->case_insensitive)
+		{
+			initStringInfo(&quote_char);
+		}
+		else
+		{
+			getQuoteChar(dbc, &quote_char);
+		}
 
 		/* Get name qualifier char */
 		getNameQualifierChar(dbc, &name_qualifier_char);
@@ -1371,7 +1387,14 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 	odbc_connection(&options, &env, &dbc);
 
 	/* Get quote char */
-	getQuoteChar(dbc, &quote_char);
+	if (options.case_insensitive)
+	{
+		initStringInfo(&quote_char);
+	}
+	else
+	{
+		getQuoteChar(dbc, &quote_char);
+	}
 
 	/* Get name qualifier char */
 	getNameQualifierChar(dbc, &name_qualifier_char);
@@ -1588,7 +1611,14 @@ odbcIterateForeignScan(ForeignScanState *node)
 			/* Get the position of the column in the FDW table */
 			for (k=0; k<num_of_table_cols; k++)
 			{
-				if (strcmp(table_columns[k].data, (char *) ColumnName) == 0)
+				elog_debug("Comparing column %s (%d) with %s (case insensitive %s)",
+					table_columns[k].data,
+					k,
+					ColumnName,
+					festate->options.case_insensitive ? "true" : "false");
+				int (*cmp)(const char*, const char*) = (festate->options.case_insensitive ?
+					strcasecmp : strcmp);
+				if (cmp(table_columns[k].data, (char *) ColumnName) == 0)
 				{
 					SQLULEN min_size = minimum_buffer_size(DataTypePtr);
 					SQLULEN max_size = MAXIMUM_BUFFER_SIZE;
