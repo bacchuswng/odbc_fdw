@@ -1637,9 +1637,14 @@ odbcIterateForeignScan(ForeignScanState *node)
 			/* if current column is not used by the foreign table */
 			if (!found)
 			{
+				ereport(ERROR,
+					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+					 errmsg("foreign table returned unknown column: %s", ColumnName)));
+				/*
 				col_position_mask = lappend_int(col_position_mask, -1);
 				col_size_array = lappend_int(col_size_array, -1);
 				col_conversion_array = lappend_int(col_conversion_array, 0);
+				*/
 			}
 			pfree(ColumnName);
 		}
